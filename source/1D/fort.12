@@ -1,0 +1,145 @@
+!-----------------------------------------------------------------------------+
+!  Rafael Ramis                                                               !
+!  Universidad Politecnica de Madrid                                          !
+!  March 4, 2015                                                              !
+!-----------------------------------------------------------------------------+
+!  Generic Laser-Fusion target.                                               !
+!  Described in detail in S. Atzeni and J. Meyer-ter-Vehn, "The physics of    !
+!  inertial fusion", Claredon Press - Oxford (2004), Chap 3. and R.L. McCrory !
+!  and  C.P. Verdon, In "Inertial Confinement Fusion" Proceedings of the      !
+!  Course and Workshop, 1988, (eds. Caruso and E. Sindoni), pp. 83-123.       ! 
+!-----------------------------------------------------------------------------+
+&parameters
+!--problem definition (general)
+   igeo        = 3,               ! geometry (spherical)
+   xmin        = 0.,              ! initial left boundary coordinate
+   texit       = 30e-9,           ! exit time
+   nfuel       = 160,             ! cells with DT
+!--problem definition (boundary conditions)
+   iright      = 0,               ! free right boundary
+   ileft       = 1,               ! rigid left boundary (center of sphere)
+   alphal      = 0.,              ! reflected rad. frac. at L
+   alphar      = 0.,              ! reflected rad. frac. at R
+   betal       = 0.,              ! rad. pulse coupling at L
+   betar       = 0.,              ! rad. pulse coupling at R
+   itype       = 2,               ! rad. pulse shape (constant)
+   tau         = 0.,              ! rad. pulse duration
+   trad        = 0.,              ! rad. pulse ref. temp.
+!--problem definition (modeling options)
+   iradia      = 1,               ! enable radiation
+   ihydro      = 1,               ! enable hydrodynamics
+   iheation    = 1,               ! enable ion heat conduction
+   model       = 0,               ! electron collisions model (classical)
+   fheat       = 8.0,             ! coefficient (if model==1)
+   fei         = 2.0,             ! coefficient (if model==1)
+   flaser      = 26.0,            ! coefficient (if model==1)
+   zmin        = 0.1,             ! minimum value of Z
+   flf         = 0.1,             ! flux limit factor
+   inegpre     = 1,               ! allow negative pressure
+!--numerical options
+   nsplit      = 5,               ! requested num. of subcycles
+   dtmin       = 1e-18,           ! minimum dt
+   dtmax       = 100e-12,         ! maximum dt
+   dtinit      = 100e-12,         ! initial dt
+   dtrvar      = 0.1,             ! nominal density variation
+   dttevar     = 1.e12,           ! nominal electron temp. variation (disabled)
+   dttivar     = 1.e12,           ! nominal ion temp. variation (disabled)
+   dtbreak     = 2.,              ! break step factor
+   dtfactor    = 2.,              ! dt increment factor
+   nexit       = 10000,           ! maximum number of steps
+   iwctrl      = 1,               ! optimize deposition factors
+!--output control
+   dt_aout     = 1000000.,        ! ascii output time interval
+   ns_aout     = 1000000,         ! output step interval
+   dt_bout     = 1000000.,        ! output time interval
+   ns_bout     = 3,               ! output step interval
+   irad_left   = 1,               ! left spectra at this interface
+   irad_right  = 1000,            ! right spectra at this interface
+   nreduce     = 1,               ! display 1/2 of interfaces/cells values
+/
+!------------------------------------------------------------------------------
+&layer
+   nc          = 60,              ! number of cells
+   thick       = 0.0668,            ! thickness
+   r0          = 0.0001,   !1.1000,          ! density
+   te0         = 0.00001,         ! electron temperature
+   ti0         = 0.00001,         ! ion temperature
+   zonpar      = 1.0,             ! variable grid size
+   material    = 'DT',            ! thermonuclear fuel
+/
+&layer
+   nc          = 100,              ! number of cells
+   thick       = 0.0246,           ! thickness
+   r0          = 0.25,             ! density
+   te0         = 0.00001,         ! electron temperature
+   ti0         = 0.00001,         ! ion temperature
+   zonpar      = 1.02,            ! uniform grid
+   material    = 'DT',            ! thermonuclear fuel
+/
+&layer
+   nc          = 100,             ! number of cells
+   thick       = 0.0030,          ! thickness
+   r0          = 1.10,            ! density
+   te0         = 0.00001,         ! electron temperature
+   ti0         = 0.00001,         ! ion temperature
+   zonpar      = 0.98,           ! uniform grid
+   !zonpar      = -0.97,           ! uniform grid
+   material    = 'Polystyrene',   ! Plastic
+/
+!------------------------------------------------------------------------------
+&material
+   name        = 'DT',            ! thermonuclear fuel
+   zi          = 1,               ! atomic number
+   ai          = 2.5,             ! mass number
+   eeos_id     = 52711,           ! electron EOS table (id)
+   eeos_file   = '../tables/DT',     ! electron EOS table (file)
+   ieos_id     = 52712,           ! ion EOS table (id)
+   ieos_file   = '../tables/DT',     ! ion EOS table (file)
+   z_id        = -1,              ! use zi for ionization
+   planck_id   = 10003000,        ! Planck opacity table (id)
+   planck_file = '../tables/DT',     ! Planck opacity table (file)
+   ross_id     = 10004000,        ! Rosseland opacity table (id)
+   ross_file   = '../tables/DT',     ! Rosseland opacity table (file)
+   eps_id      = -1,              ! LTE emissivity
+/
+&material
+   name        = 'Polystyrene',   ! ablator
+   zi          = 3.50,            ! average atomic number
+   ai          = 6.51,            ! average mass number
+   eeos_id     = 75901,           ! electron EOS table (id)
+   eeos_file   = '../tables/Carbon', ! electron EOS table (file)
+   ieos_id     = 75902,           ! ion EOS table (id)
+   ieos_file   = '../tables/Carbon', ! ion EOS table (file)
+   z_id        = -1,              ! use zi for ionization
+   planck_id   = 50003000,        ! Planck opacity table (id)
+   planck_file = '../tables/Carbon', ! Planck opacity table (file)
+   ross_id     = 50004000,        ! Rosseland opacity table (id)
+   ross_file   = '../tables/Carbon', ! Rosseland opacity table (file)
+   eps_id      = -1,              ! LTE emissivity 
+/
+!------------------------------------------------------------------------------
+&pulse_wkb
+   inter       = 1,               ! -1 laser comes from the LHS (+1 for RHS)
+   pimax       = 1e19,            ! unit of power (TW)
+   pitime      = 1e-9,            ! unit of time (ns)
+   wl          = 0.351e-4,        ! laser wavelength
+   itype       = 4,               ! use tabulated shape
+   delta       = 0.9,             ! fraccional absorption at crit. densisty
+/
+&pulse_shape
+   ntab        = 9,               ! number of values in ptab and ptab
+   mtab        = 1,               ! linear interpolation in ptab**expo
+   expo        = 1,               ! expo=1 => linear interpolation
+ !  ttab        =  0,   3.004,  6.008, 8.001, 9.002,9.944, 11.78, 11.781,
+ !  ptab        =  0.7252, 0.8539, 1.578, 3.94, 8.644,27.43, 296, 0, 
+
+  !ttab        =  0,   3.004,  6.008, 8.001, 9.002,9.944, 10.36,13.44,
+  ! ptab        =  0.7252, 0.8539, 1.578, 3.94, 8.644,27.43, 89.58, 89.58, 
+
+  ttab        =  0,   3.004, 6.008, 8, 9.5, 10.75, 11.67,  14.42,  14.421,
+  ptab        =  0.7252, 0.8313, 1.363, 2.715, 6.722, 24.63, 89.58, 89.58, 0,
+
+
+
+/
+!------------------------------------------------------------------------------

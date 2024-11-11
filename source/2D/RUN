@@ -1,0 +1,15 @@
+echo "nada" >ktag
+
+x.2.library
+if [ $? != 0 ]
+then
+   rm ktag
+   exit
+fi
+
+x.2.build multi
+
+cat >proceso <<EOF
+/usr/bin/time ./multi>>output 2>>cputime;rm ktag
+EOF
+nohup sh proceso &
