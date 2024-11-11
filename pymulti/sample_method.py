@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class Sampler:
     def __init__(self):
         pass
@@ -27,14 +26,12 @@ class Sampler:
             raise ValueError(
                 "n_samples must be an integer or a list/array with the same length as max_values and min_values")
 
-        steps = [(max_val - min_val) / (n - 1) for max_val, min_val, n in zip(max_values, min_values, n_samples)]
-        sampling_values = [np.arange(min_val, max_val + step, step) for min_val, max_val, step in
-                           zip(min_values, max_values, steps)]
+        sampling_values = [np.linspace(min_val, max_val, n, endpoint=True) for min_val, max_val, n in
+                           zip(min_values, max_values, n_samples)]
         grids = np.meshgrid(*sampling_values, indexing='ij')
         flattened_grids = [grid.ravel() for grid in grids]
         sampled_grid = np.column_stack(flattened_grids)
         return sampled_grid
-
     def random_sampling(self, max_values, min_values, n_samples):
         """
         Generate random sampling grids for multiple dimensions.

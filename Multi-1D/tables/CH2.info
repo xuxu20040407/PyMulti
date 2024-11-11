@@ -1,0 +1,52 @@
+==============================================================
+Author: Rafael Ramis, Fuyuan Wu
+Institution: E.T.S.I.Aeronauticos, Universidad Politecnica de Madrid
+Address: P. Cardenal Cisneros 3, E-28040 Madrid (SPAIN)
+e-mail: rafael.ramis@upm.es
+==============================================================
+Date: Fri Aug  5 10:39:50 CEST 2016
+==============================================================
+Based on package [eos-1.0] and using external codes:
+   SNOP version [snop-0.2] (equations of state)
+   MPQEOS version [mpqeos-0.1] (opacities)
+==============================================================
+Material name: CH2
+Code number: 2016
+Atomic number (Z): 2.66667
+Mass number (A): 4.66667
+Solid density: 0.93 (g/cm**3)
+Bulk modulus: 3.39e+10 (pa)
+Maxwell's construction: NO
+Opacities: LTE
+Atomic numbers (Z): 6 1 
+Atomic masses (A): 12 1 
+Mass fractions: 0.857143 0.142857 
+Atom fractions: 0.333333 0.666667 
+Number of opacity groups: 30
+Frequency range (eV): 1-20000
+Remarks: standard settings used
+==============================================================
+Tables: 
+   File=CH2.i301     id=20160301 - inverted eos
+   File=CH2.i304     id=20160304 - inverted eos for electrons
+   File=CH2.i305     id=20160305 - inverted eos for ions
+   File=CH2.PLANCK   id=20163000 - Planck multigroup opacity
+   File=CH2.ROSS     id=20164000 - Rosseland multigroup opacity
+   File=CH2.ZEV      id=20162000 - ionization (MULTI-*D format)
+   File=CH2.ZKEV     id=20162000 - ionization (MULTI-fs format)
+==============================================================
+NOTES:
+
+1) Each version of MULTI needs different tables:
+   MULTI-1D - i301, PLANCK, ROSS, EPS, ZEV
+   MULTI-2D - i301
+   MULTI-3D - i301
+   MULTI-fs - i304, i305, PLANCK, ROSS, EPS, ZKEV
+
+2) The table with normalized emissivity (EPS) is generated only when
+the Non-LTE option is active
+
+3) For MULTI-fs, all tables are concatenated in the same file
+and are identified by the ID number. In other versions the ID
+number is not used
+==============================================================

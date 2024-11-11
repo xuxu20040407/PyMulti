@@ -27,6 +27,7 @@ def pre_process(case_dir):
     stime = [float(f[:-2]) for f in files]
     stime.sort()
     stime[0]=0
+    print(stime)
 
     with open('0.d', 'r') as fp01:
         lines = fp01.readlines()
@@ -70,6 +71,7 @@ def pre_process(case_dir):
 
     T_bar = []
 
+
     # Loop over the time steps
     for jj in range(101):
         i = np.where(np.array(stime) >= jj * 1e-11)[0]
@@ -82,10 +84,12 @@ def pre_process(case_dir):
             a = np.fromfile(fp02, dtype=np.float32)
             a = a[1:]
 
+
         x = a[sx - istart-1:sx - istart + lx-1] * 1e4
         y = a[sy - istart-1:sy - istart + ly-1] * 1e4
         rho = a[srho - istart-1:srho - istart + lrho-1]
         T = a[sT - istart-1:sT - istart + lT-1]
+
 
         rho_interpolation = tri2node(tn, rho)
 
