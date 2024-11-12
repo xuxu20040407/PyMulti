@@ -34,6 +34,12 @@ Pymulti 是基于Multi程序设计的接口，旨在方便Multi程序在Python�
 ```
 init1D('Multi-1D')
 ```
+生成的文件结构为：
+- Multi-1D
+  - database 
+    - fort.12
+    - multi
+  - tables
 
 ## uniform_sampling(max_values, min_values, n_samples)
 此函数用于生成特定索引的输入数据文件inp_{index}.dat。输入数据包括激光参数和材料厚度。
@@ -68,10 +74,11 @@ generate_input_data1D('Multi-1D', 0)
 ```
 生成的文件结构为：
 - Multi-1D
-  - fort.12
-  - multi
-  - inp_0.dat
-
+  - database 
+    - fort.12
+    - multi
+    - inp_0.dat
+  - tables
 ## run_command_1D(new_dir, index)
 此函数用于运行特定索引的计算任务。它将删除旧的fit_{index}.dat文件（如果存在），然后执行计算。
 
@@ -85,13 +92,15 @@ generate_input_data1D('Multi-1D', 0)
 run_command_1D('Multi-1D', 0)
 ```
 计算后的文件结构为：
+生成的文件结构为：
 - Multi-1D
-  - fort.12
-  - multi
-  - inp_0.dat
-  - block_0
-  - fit_0.dat
-
+  - database 
+    - fort.12
+    - multi
+    - inp_0.dat
+    - block_0
+    - fit_0.dat
+  - tables
 ## data1D_process(program_name, task_num, stacked_grid)
 此函数用于处理计算生成的fit_{index}.dat文件，并将数据整合到一个数组中。
 
