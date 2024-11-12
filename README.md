@@ -6,7 +6,7 @@ Pymulti is an interface based on Multi programming, which is designed to facilit
   - Multi _ 1D.py: Methods for 1D
   - Multi _ 2D.py: Methods for 2D
   - Process _ 2D.py: processing method for 2D data
-  - Sample _ method. Py: methods for sampling
+  - Sample _ method.py: methods for sampling
 - Source: The source file for the initialization case
   - 1D: Initialize source files for 1D examples
     - Fort.12: Input Template
