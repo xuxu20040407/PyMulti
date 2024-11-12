@@ -20,7 +20,7 @@ Pymulti is an interface based on Multi programming, which is designed to facilit
 # Function
 
 ## init1D(case_dir)
-This function creates a new 1D project directory and copies the necessary initialization files from source/1D and source/tables to the _database_ which is a subdirectory of the project.
+This function creates a new 1D project directory and copies the necessary initialization files from _source/1D_ and _source/tables_ to the _database_ which is a subdirectory of the project.
 
  **Parameters:**
 
