@@ -3,92 +3,100 @@ import os
 import shutil
 import numpy as np
 
+import os
+import shutil
 
-def init2D(case_dir):
+
+def init2D(case_dir, task_num):
+    # 初始化项目
     pwd = os.getcwd()
-    if case_dir == None:
+    if case_dir is None:
         case_dir = pwd
     else:
         case_dir = os.path.join(pwd, case_dir)
-
+    # 创建项目文件夹
     if not os.path.exists(case_dir):
         os.makedirs(case_dir)
-
+    # 创建项目数据库子文件夹
     new_dir = os.path.join(case_dir, 'database')
-
     if not os.path.exists(new_dir):
         os.makedirs(new_dir)
 
+    # 在program下创建0~task_num-1子文件夹
+    task_dirs = []
+    for i in range(task_num):
+        task_dir = os.path.join(new_dir, str(i))
+        if not os.path.exists(task_dir):
+            os.makedirs(task_dir)
+        task_dirs.append(task_dir)
+    # 迁移源文件至每个任务子文件夹
     source_dir = os.path.join(pwd, 'source/2D')
-
-    # 定义要复制的文件列表
-    files_to_copy = ['User.r', 'multi2d']
-
-    # 检查source文件夹是否存在
-    if not os.path.exists(source_dir):
-        print(f"错误: 'source'文件夹不存在在路径: {source_dir}")
-        return
-
-    # 复制文件到新文件夹
+    files_to_copy = ['User.r','DEPENDENCES','FILELIST']
     for file_name in files_to_copy:
         file_path = os.path.join(source_dir, file_name)
         if os.path.exists(file_path):
-            shutil.copy(file_path, new_dir)
-        else:
-            print(f"警告: 文件'{file_name}'在'{source_dir}'中未找到.")
+            for task_dir in task_dirs:
+                shutil.copy(file_path, task_dir)
 
     return new_dir
 
 
 def generate_input_data2D(case_dir, index, laser, thick1, thick2, thick3):
-    if laser == None:
-        laser = [
-            0.00, 0.13, 2.85, 3.23, 2.31, 1.88, 1.4, 2.4, 2.16, 2.87, 0.92, 2.06, 0.13,
-            0.00, 1.8, 1.4, 1.25, 1.12, 3.59, 4.26, 17.89, 29.81, 94.9, 162.11, 300,
-            0.00
-        ]
-    if thick1 == None:
+    # 由于Multi2d程序需要现场编译，所有需要在新的index文件夹下产生输入文件
+    if laser is None:
+        laser = [0.000000,
+                 0.390000,
+                 0.570000,
+                 0.200000,
+                 0.250000,
+                 0.300000,
+                 0.440000,
+                 0.430000,
+                 0.330000,
+                 0.650000,
+                 0.750000,
+                 1.350000,
+                 0.090000,
+                 0.000000,
+                 4.730000,
+                 0.000000,
+                 0.000000,
+                 4.000000,
+                 4.420000,
+                 4.730000,
+                 6.860000,
+                 18.04000,
+                 22.40000,
+                 32.00000,
+                 32.00000,
+                 0.000000]
+    if thick1 is None:
         thick1 = 0.15
-    if thick2 == None:
+    if thick2 is None:
         thick2 = 0.003
-    if thick3 == None:
+    if thick3 is None:
         thick3 = 0.02
 
     if not os.path.exists(case_dir):
         os.makedirs(case_dir)
-
-    output_filename = os.path.join(case_dir, f"inp_{index}.dat")
-
+        os.makedirs(os.path.join(case_dir,str(index)))
+    # 在指定文件夹下创建算例的输入文件
+    output_filename = os.path.join(case_dir,str(index), f"inp_{index}.dat")
     with open(output_filename, "w") as fp_out:
         for data in laser:
             fp_out.write(f"{data:.8f}\n")
         fp_out.write(f"{thick1:.4f}\n{thick2:.6f}\n{thick3:.6f}\n")
 
 
-def data2D_process(program_name, task_num, stacked_grid):
-    pwd = os.getcwd()
-    data_dir = os.path.join(pwd, program_name)
-    all_data = np.zeros((task_num, 12))
-
-    for i in range(task_num):
-        folder_path = os.path.join(data_dir, 'database')
-        file_path = os.path.join(folder_path, f"fit_{i}.dat")
-
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as file:
-                lines = file.readlines()
-                for line in lines:
-                    data = np.fromstring(line, sep=' ')
-                    all_data[i, 3:12] = data
-    all_data[:, 0] = stacked_grid[:, 0]
-    all_data[:, 1] = stacked_grid[:, 1]
-    all_data[:, 2] = stacked_grid[:, 2]
-    return all_data
-
-
 def run_command_2D(new_dir, index):
     # 构建命令字符串
-    command = f"cd {new_dir};rm fit_{index}.dat;chmod 755 ./multi2d; ./multi2d {index}"
+    index_dir=os.path.join(new_dir,str(index))
+    command = (f"cd {index_dir};"
+               f"rm fit_{index}.dat;"
+               f"x.2.library;"
+               f"x.2.build multi2d;"
+               f"chmod 755 ./multi2d;"
+               f"./multi2d {index}")
 
     # 运行命令
     try:
@@ -110,9 +118,44 @@ def run_command_2D(new_dir, index):
         print(e.stderr)
 
 
-def run_delete_2D(new_dir):
-    command = f"cd {new_dir};rm fit_*.dat;rm block_*;rm inp_*.dat"
+def data2D_process_inp(program_name, task_num):
+    # 先计算inp文件中输入的数目
+    pwd = os.getcwd()
+    data_dir = os.path.join(pwd, program_name)
+    folder_path = os.path.join(data_dir, 'database','0')
+    file_path = os.path.join(folder_path, "inp_0.dat")
+    data = np.loadtxt(file_path)
+    fit_size=np.size(data,0)
+    # 对项目下的所有fit文件进行数据整理
+    all_data = np.zeros((task_num, fit_size))
+    for i in range(task_num):
+        folder_path = os.path.join(data_dir, 'database',str(i))
+        file_path = os.path.join(folder_path, f"inp_{i}.dat")
+        data = np.loadtxt(file_path)
+        all_data[i, :] = data
+    return all_data
 
+def data2D_process_fit(program_name, task_num):
+    # 先计算fit文件中输出的数目
+    pwd = os.getcwd()
+    data_dir = os.path.join(pwd, program_name)
+    folder_path = os.path.join(data_dir, 'database','0')
+    file_path = os.path.join(folder_path, "fit_0.dat")
+    data = np.loadtxt(file_path)
+    fit_size=np.size(data,0)
+    # 对项目下的所有fit文件进行数据整理
+    all_data = np.zeros((task_num, fit_size))
+    for i in range(task_num):
+        folder_path = os.path.join(data_dir, 'database',str(i))
+        file_path = os.path.join(folder_path, f"fit_{i}.dat")
+        data = np.loadtxt(file_path)
+        all_data[i, :] = data
+    return all_data
+
+
+
+def run_delete_2D(new_dir):
+    command = f"find {new_dir} -type f \( -name 'fit_*.dat' -o -name 'block_*' -o -name 'inp_*.dat' \) -print0 | xargs -0 rm -f"
     try:
         result = subprocess.run(command, shell=True, check=True, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
@@ -128,23 +171,3 @@ def run_delete_2D(new_dir):
         print(f"命令 '{command}' 执行失败，返回码：{e.returncode}")
         print(e.stderr)
 
-
-def data2D_process(program_name, index, stacked_grid):
-    pwd = os.getcwd()
-    data_dir = os.path.join(pwd, program_name)
-    all_data = np.zeros((index, 12))
-
-    for i in range(index):
-        folder_path = os.path.join(data_dir, str(i))
-        file_path = os.path.join(folder_path, f"fit_{i}.dat")
-
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as file:
-                lines = file.readlines()
-                for line in lines:
-                    data = np.fromstring(line, sep=' ')
-                    all_data[i, 3:12] = data
-    all_data[:, 0] = stacked_grid[:, 0]
-    all_data[:, 1] = stacked_grid[:, 1]
-    all_data[:, 2] = stacked_grid[:, 2]
-    return all_data
