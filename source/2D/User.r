@@ -1,18 +1,24 @@
 $-----------------------------------------------------------------------------+
 $                                                                             |
-$   CASE:       M2D_DCI_Implosion_120                                         |
+$   CASE:       M2D_Laser_Fusion                                              |
 $                                                                             |
-$   Version:    211205                                                        |
+$   Version:    200803                                                        |
 $                                                                             |
-$   History:    from [m2d-cases-7.0.7]/M2D_Laser_110                          |
+$   History:    from [m2d-cases-7.0.8]/M2D_Laser_ALE_120                      |
 $                                                                             |
-$   Written by: Rafael Ramis and Fuyuan Wu                                    |
+$   Written by: Rafael Ramis and Zheyi Ge                                     |
 $                                                                             |
-$   Abstract:   Laser driven DCI implosion                                    |
+$   Abstract:   Laser driven capsule implosion                                |
 $                  ALE hydrodynamics with symmetry preservation               |
 $                  Radiation transport and heat conduction                    |
 $                  Test ray-tracing package                                   |
 $                  Filter radiation and laser deposition                      |
+$                  DT nuclear reations and alpha-particle transport           |
+$                                                                             |
+$   Note:       Capsule design based on Temporal et al., Eur. Phys. J. D      |
+$               (2019) 73:5. Value obtainde by this simulation                |
+$               (absorbed laser 400 kJ and nuclear yield 10 MJ) are similar   |
+$               to the 1D published values (270 kJ and 11.9 MJ)               |
 $                                                                             |
 $-----------------------------------------------------------------------------+
 
@@ -21,295 +27,181 @@ $-----------------------------------------------------------------------------+
 
 
 $==============================================================================
-$--Main program
+$--main program
 entry multi2d()
 {
-   time                        = 0.25e-9;  $original 15e-9 
-   dt_out                      = 50e-12;  
-   dt_max                      = 3e-12;    
-   dt_init                     = 1e-12;   
-$--Create grid definition, initial state and initial time-step
-   hydro                       = Capsule();
-   hydro.dt                    = dt_init;
-   hydro.output                = 'myoutput(1)';
+$--capsule design based on Temporal et al., Eur. Phys. J. D (2019) 73:5
+$--initial densities modified to have zero pressure at initial time
+   $r           = double(0.0593:0.0791:0.0815);  $--radius of interfaces
+   r           = double(0.0200:0.0450:0.0550);  $--radius of interfaces
+   n           = 16:30:20;                      $--radial number of cells
+   z           = 1:1.0:0.9;                     $--zone parameters
+   i           = 1:2:3;                         $--zone indices
+$--use special routine in [malla-6.0] to generate an spherical capsule
+   ma          = ma_simple_quadrant(n,r,z,i);
+$--use different quadrangle subdivision mode in each layer
+   zi          = sum(ma.qid==1|ma.qid==2);       
+                 ma_divide(ma,1...zi,1:1:1:1);
+                 ma_divide(ma,(zi+1)...#ma.qid,1:1:0:0);
+$--generate the main data structure
+   topo        = NewTopo(ma.t,ma.ct,ma.x,ma.y);
+   h           = Hydro(topo,gmode=2,xsymmetry=1,ntemp=2);
+$--three materials DT, He (reaction product), and CH (ablator)
+   temp        = 0.01;
+   rhoGas      = 0.0005; 
+   rhoIce      = 0.0005; 
+   rhoCH       = 1.127320;
+
+   $matDT       = MaterialDT();
+   $matHe       = MaterialDT();
+
+   matCH       = MaterialCH();
+   HydroAdd(h,matCH,(rhoGas:rhoIce:rhoCH)[ma.tid],temp,temp);
+
+$--groups of nodes with identical initial radius
+   lines       = layers(h.p);
+$--create structure with integration parameters
+   control                     = struct();
+   struct(control,<hydro>,    M20_Hydrodynamics_Control());
+   struct(control,<ray>,      M20_RayTracing_Control());
+   struct(control,<project>,  M20_Project_Control());
+   struct(control,<transport>,M20_Transport_Control());
+   struct(control,<plasma>,   [[]]);
+   struct(control,<fusion>,   [[<f>]]);
+   control.hydro.max_cfl       = 1;
+   control.hydro.max_var       = 0.1;
+   control.hydro.qmode         = 5;
+   control.hydro.pfactor       = 2;
+   control.hydro.spherical     = 1;
+   control.ray.rays_f          = 'Laser(2)';
+   control.ray.adjust_f        = 'smooth_laser(3)';
+   control.ray.adjust_a        = [lines];
+   control.ray.wavelength      = 0.0000350;
+   control.transport.Tmaxvar   = 1e6;
+   control.transport.reflex    = 1;
+   control.transport.nphis     = 2:4:4:4:4:2;
+   control.transport.freepath  = 'Material_Freepath(4)';
+   control.transport.heatcond  = 'Material_Conductivity(4)';
+   control.transport.adjust_f  = 'smooth_radia(3)';
+   control.transport.adjust_a  = [lines];
+   struct(control.transport,<kalpha>,1.5:0.0010);
+$--additional output    
+   struct(h,<output>,'myoutput(1)');
+$--initial time step
+   h.dt        = 10e-12;
+$--output at these times
+   times       =                 (0 ... 100)*0.100e-9;
+$--initial radius of nodes on the horizontal axis
+   rext        = h.topo.x0[pos(h.topo.y0==0)];
+   rext        = rext[sort(rext)];
+
 
 $--construct a structure to store variables for GA optimizations
-   struct(hydro,<gaopt>,ga_initialize_fitness());
-
+   struct(h,<gaopt>,ga_initialize_fitness());
+   
    mindex    = Arguments#2;
    fileinp   = "inp_":mindex:".dat";
    fileout   = "fit_":mindex:".dat";
    res       = readPulse(fileinp);
-   hydro.gaopt.ltimes          = res.times;
-   hydro.gaopt.lpowers         = res.powers;
-   hydro.gaopt.elaser          = res.elaser;
-   if(hydro.gaopt.elaser>80 |hydro.gaopt.elaser<45) {
+   h.gaopt.ltimes          = res.times;
+   h.gaopt.lpowers         = res.powers;
+   h.gaopt.elaser          = res.elaser;
+   if(h.gaopt.elaser>1000 |h.gaopt.elaser<0) {
+      h.gaopt.amp = 0.01;
       ga_output_fitness(fileout,hydro);
       return(0);
    }
-   $display(res.times);
-   $display(res.powers);
-   $display(res.elaser);
-   $return(0);
 
-$--Create structure with integration parameters
-   control                     = struct();
-   struct(control,<hydro>,M20_Hydrodynamics_Control());
-   control.hydro.max_cfl       = 0.6;
-   control.hydro.max_var       = 0.1;
-   control.hydro.kq1           = 1.8;
-   control.hydro.kq2           = 0.5;
-   control.hydro.qmode         = 5;
-   control.hydro.pfactor       = 2;
-   control.hydro.spherical     = 1;
-   control.hydro.pext_f        = 'pext_f(4)';
-   struct(control,<ray>,M20_RayTracing_Control());
-   control.ray.rays_f          = 'Laser(2)';
-   control.ray.adjust_f        = 'smooth_laser(2)';
-   control.ray.wavelength      = 0.0000350;
-   struct(control,<transport>,M20_Transport_Control());
-   control.transport.Tmaxvar   = 5e2;
-   control.transport.reflex    = 1;
-   control.transport.nphis     = 2:4:4:2;
-   control.transport.freepath  = 'Material_Freepath(4)';
-   control.transport.heatcond  = 'Material_Conductivity(4)';
-   control.transport.adjust_f  = 'smooth_radia(2)';
-   struct(control.transport,<kalpha>,2.5:0.0100);
-   struct(control,<plasma>, M20_Plasma_Control());
-   struct(control,<project>,M20_Project_Control());
-   control.project.var         = 0.6;
+$--values at the beginning of time step
+   h1          = h;   
+$--reference grid
+   hR          = h;   
 
-$--Perform the simulation
-   times                       = (0 ... ceil(time/dt_out))*dt_out;
-   hydro1                      = hydro;
-   hydroR                      = hydro;
-   DEBUG_LINES                 = layers(hydro.p);
-   rext                        = hydro.topo.x0[pos(hydro.topo.y0==0)];
-   rext                        = rext[sort(rext)];
    while(1){
-      control.hydro.pext_a     = [hydro1];
-      hydro1                   = minrho(hydro1,1e-5);
+$-----perform numerical integration
+      h2       = M20_Step(control,h1);
 
-      hydro2                   = M20_Step(control,hydro1);
+      h2       = ga_calculate_fitness(h2);
 
-      hydro2                   = ga_calculate_fitness(hydro2);
+$-----print interesting values 
+      rhor(h2);
+$-----output at specified times
+      $HydroOutputAtTimes(h1,h2,times);
 
-      $HydroOutputAtTimes(hydro1,hydro2,times);
-      if(M20_Project_Test(hydro2,hydroR,control.project)){
-         $p("-"[(1 .. 72)>0]);
-         $p("   unit  = Project");
-         hydro2             = M20_Project(hydro2,hydroR,control.project);
+$-----after 5 ns, consider a grid change
+      if(M20_Project_Test(h2,hR,control.project)&h2.time>5e-9){
+         p("-"[(1 .. 72)>0]);
+         p("   unit  = Project");
+$--------try to obtain a smooth grid based of interface #47 and time
+         hb    = procesa(h2,rext[57],h2.time>6.0e-9);
+         $hb    = procesa(h2,rext[47],h2.time>6.0e-9);
+$--------if successful, project values and take the new grid as reference
+         if(?hb){
+            p("   perform projection");
+            h2 = M20_Project(h2,hb,control.project);
+            hR = h2;
+         }
       }
-      hydro1                   = hydro2;
-      $if(hydro1.dt<1e-15|max(hydro1.TeN)>1e6){
-      if(hydro1.dt<1e-15|max(hydro1.TN)>1e6){
+$-----check that time step and maximum temperature are inside bounds
+      if(h2.dt<1e-15|max(h2.TeN)>1e6){
          p("-"[(1...72)>0]);
          p("   unit  = abort");
-         p(encode("         dt   = %g",hydro1.dt));
-         p(encode("         Tmax = %g",max(hydro1.TN)));
-         $HydroOutput(hydro2);
+         p(encode("         dt   = %g",h2.dt));
+         p(encode("         Tmax = %g",max(h2.TeN)));
+         HydroOutput(h2);
 
-         hydro1.gaopt.rhorf    = 0;
-         hydro1.gaopt.rhorc    = 0;
-         hydro1.gaopt.rho      = 0;
-         hydro1.gaopt.ekimp    = 0;
-	 ga_output_fitness(fileout,hydro1);
+         ga_output_fitness(fileout,h2);
 
          break;
       }
-      hydro1.dt                = min(hydro1.dt,dt_max);
-      if(hydro1.time>max(times)){
-        ga_output_fitness(fileout,hydro1);
-	break;
+$-----normal exit condition 
+      if(h2.time>max(times)){
+         ga_output_fitness(fileout,h2);
+
+         break;
       }
+
+$-----step finished, replace initial values for next step
+      h1       = h2;
+$-----set maximum time step
+      h1.dt    = min(h1.dt,10e-12);
    }
    p("-"[(1...72)>0]);
 }
 $==============================================================================
-local ga_initialize_fitness()
-{
-   o          = struct();
-   struct(o,<rhorf>,   0);
-   struct(o,<rhorc>,   0);
-   struct(o,<rho>,     0);
-   struct(o,<T>,       0);
-   struct(o,<P>,       0);
-   struct(o,<V>,       0);
-   struct(o,<ltimes>,  *);
-   struct(o,<lpowers>, *);
-   struct(o,<mimp>,    0);
-   struct(o,<ekimp>,   0);
-   struct(o,<elaser>,  0);
+$--specific output for thermonuclear reactions
+local myoutput(hydro){
 
-   return(o);
-}
-$==============================================================================
-local ga_calculate_fitness(hydro)
-{
-   hydro      = copy(hydro);
-
-   topo       = hydro.topo;
-
-   np         = hydro.topo.np;
-   iy         = (1 ... np)*2;
-   ix         = iy-1;
-   vx         = hydro.v[ix];
-   vy         = hydro.v[iy];
-   vr         = sqrt(vx*vx+vy*vy)*(vx<0);
-
-   rhorfmax   = hydro.gaopt.rhorf;
-   rhorcmax   = hydro.gaopt.rhorc;
-   rhomax     = hydro.gaopt.rho;
-   mimp       = hydro.gaopt.mimp;
-   ekimp      = hydro.gaopt.ekimp;
-   ptmax      = hydro.gaopt.P;
-   timax      = hydro.gaopt.T;
-   vrmax      = hydro.gaopt.V;
-
-   frac1      = hydro.mass#1/hydro.tmass;
-   frac1n     = cell_to_node(topo.tn,topo.ct,topo.np,frac1);
-   rhon       = cell_to_node(topo.tn,topo.ct,topo.np,hydro.rho*(frac1>0));
-   rhomax     = max(hydro.rho*(frac1>0):rhomax);
-   ptmax      = max(hydro.P  *(frac1>0):ptmax);
-   timax      = max(hydro.TN*frac1n:timax);
-   vrmax      = max(vr*(rhon>10)*frac1n:vrmax);
-   nmass1     = hydro.nmass*frac1n*(vx<0);
-   mimp       = max(sum(nmass1):mimp);
-   ekimp      = max(sum(0.5*nmass1*vr^2):ekimp);
-
-   xn         = hydro.p[ix];
-   yn         = hydro.p[iy];
-   rn         = hypot(xn,yn);
-   rc         = node_to_cell(topo.tn,(topo.ct)*0,rn); 
-
-   ind_yaxis  = pos(xn ==0);
-   rn_yaxis   = yn[ind_yaxis];
-   rhon_yaxis = rhon[ind_yaxis];
-   ind_yaxis  = sort(rn_yaxis);
-   rn_yaxis   = rn_yaxis[ind_yaxis];
-   rhon_yaxis = rhon_yaxis[ind_yaxis];
-   dr_yaxis   = cut_first(rn_yaxis)-cut_last(rn_yaxis);
-   rhoc_yaxis = 0.5*(cut_first(rhon_yaxis)+cut_last(rhon_yaxis));
-   rhorfmax   = max(sum(rhoc_yaxis*dr_yaxis),rhorfmax);
-   
-   ind_xaxis  = pos(yn == 0);
-   rn_xaxis   = xn[ind_xaxis];
-   rhon_xaxis = rhon[ind_xaxis];
-   ind_xaxis  = sort(rn_xaxis);
-   rn_xaxis   = rn_xaxis[ind_xaxis];
-   rhon_xaxis = rhon_xaxis[ind_xaxis];
-   dr_xaxis   = cut_first(rn_xaxis)-cut_last(rn_xaxis);
-   rhoc_xaxis = 0.5*(cut_first(rhon_xaxis)+cut_last(rhon_xaxis));
-   rhorcmax   = max(sum(rhoc_xaxis*dr_xaxis),rhorcmax);
-
-   $rhorDT     = sum(((hydro.mass)#1)*(rc<16e-4)/rc^2)/(4*3.14159254);
-   rhorDT     = sum(hydro.tmass*(rc<16e-4)/rc^2)/(4*3.14159254);
-   rhorcmax   = max(rhorDT,rhorcmax);
-
-   hydro.gaopt.rhorf = rhorfmax;
-   hydro.gaopt.rhorc = rhorcmax;
-   hydro.gaopt.rho   = rhomax;
-   hydro.gaopt.P     = ptmax;
-   hydro.gaopt.T     = timax;
-   hydro.gaopt.V     = vrmax;
-   hydro.gaopt.mimp  = mimp;
-   hydro.gaopt.ekimp = ekimp;
-   return(hydro);
-}
-
-local ga_output_fitness(fileout,hydro)
-{ 
-  rhorf      = hydro.gaopt.rhorf;         $ g/cm^2
-  rhorc      = hydro.gaopt.rhorc;         $ g/cm^2
-  rho        = hydro.gaopt.rho;           $ g/cc
-  vr         = hydro.gaopt.V*1e-5;        $ km/s
-  ti         = hydro.gaopt.T*1e-3;        $ keV
-  ptmax      = hydro.gaopt.P*1e-15;       $ erg/cc-->Gbar
-  mimp       = hydro.gaopt.mimp*1e6;      $ ug
-  ekimp      = hydro.gaopt.ekimp*1e-10;   $ kJ
-  elaser     = hydro.gaopt.elaser;        $ kJ
- 
-  dataout    = rhorf:rhorc:rho: ti:vr:ptmax: mimp:ekimp:elaser;
-  ga_writeVector(fileout,double(dataout));
-}
-$==============================================================================
-$ data -A vector to be written with a type of  double
-local ga_writeVector(file,data);
-
-/*C*/
-#include <stdio.h>
-#include <string.h>
-static D *_ga_writeVector2(D* _file, D* _data)
-{
-   char   s[80]; 
-   double *data;
-   FILE   *mfid1;
-
-   data = _data->p.d;
-
-   sprintf(s,"%s",_file->p.c);
-   mfid1  = fopen(s,"w");
-
-   fprintf(mfid1,"%8.4f %8.4f %8.2f %6.3f %6.2f %6.2f %8.3f %6.2f %6.2f\n", 
-           data[0],data[1],data[2],data[3],data[4],data[5],data[6],
-	   data[7],data[8]);
-
-   fclose(mfid1);
-
-   DLibera(_file); DLibera(_data);
-   return(DCreaNulo());
-}
-/*C*/
-$==============================================================================
-$ Read input laser pulse  
-local readPulse(file)
-{
-   list     = separa(carga(file),"&");
-   $all      = double(decode(list#1));
-   all      = decode(list#1);
-   n        = (#all-3)/2;
-   dt       = all[  1 ...   n];    
-   times    = acc(dt);
-   powers   = all[n+1 ... 2*n];
-
-   elaser   = 0.5*sum((powers[1 ...n-1]+powers[2 ...n])*dt[2 ...n]);   
-
-   res      = [[<times>,<powers>,<elaser>],times,powers,elaser];
-   return(res);
-}
-$==============================================================================
-$--Set minimum density
-local minrho(hydro,minrho)
-{
-   hydro      = copy(hydro);
-   factor     = max(minrho/hydro.rho,1);
-   for(i=1;i<=#hydro.mat;i=i+1){
-      hydro.mass#i=factor*hydro.mass#i;
-   }
-   HydroMass(hydro);
-   HydroRho(hydro);
-   return(hydro);
-}
-$==============================================================================
-$--Extra output 
-local myoutput(hydro)
-{
    np          = hydro.topo.np;
    iy          = (1 ... np)*2;
    ix          = iy-1;
    vx          = hydro.v[ix];
    vy          = hydro.v[iy];
-   vr          = sqrt(vx*vx+vy*vy);
+   topo        = hydro.topo;
+   rhon        = cell_to_node(topo.tn,topo.ct,topo.np,hydro.rho);
+   vr          = sqrt(vx*vx+vy*vy)*(vx<0)*(rhon>0.1);
    
                       m2d_write("vr",    vr);
-   if(?hydro.ne)      m2d_write("ne",hydro.ne);
-   if(?hydro.depo)    m2d_write("delas",hydro.depo);
-   if(?hydro.q)       m2d_write("q",hydro.q);
-   if(?hydro.lambda)  m2d_write("lambda",hydro.lambda);
-   if(?hydro.dexray)  m2d_write("dexray",hydro.dexray);
+   if(?hydro.mfp_alpha)   m2d_write("mfp_alpha",hydro.mfp_alpha);
+   if(?hydro.fusion)      m2d_write("fusion",   hydro.fusion);
+   if(?hydro.alpha_dep)   m2d_write("alpha_dep",hydro.alpha_dep);
 }
 $==============================================================================
-$--Find nodes with the same radius
+$--compute and print confinement parameters
+local rhor(h)
+{
+   a           = algorithm_components(2,h.p);
+   r           = hypot(a#1,a#2);
+   a           = algorithm_components(3,h.topo.tn);
+   rm          = (r[a#1]+r[a#2]+r[a#3])/3;
+   rhor        = sum(((h.mass)#1)/rm^2)/(4*3.14159254);
+   p("   confinement parameters");
+   p(encode("   rhor   = %g",rhor));
+   rhorHS      = sum((h.Te>5000)*((h.mass)#1)/rm^2)/(4*3.14159254);
+   p(encode("   rhorHS = %g",rhorHS));
+}
+$==============================================================================
+$--find groups of nodes with the same radius
 local layers(p)
 {
    a           = algorithm_components(2,p);
@@ -333,11 +225,10 @@ local layers(p)
    return(lines);
 }
 $==============================================================================
-$--Smooth laser deposition
-smooth_laser(depo,hydro)
+$--smooth laser deposition over groups of nodes with same initial radius
+smooth_laser(depo,hydro,lines)
 {
    depo     = copy(depo);
-   lines    = DEBUG_LINES;
    for(i=1;i<=#lines;i=i+1){
       line  = lines#i;
       depo[line] = M20_AzimuthalFilter(depo[line],hydro.nmass[line],
@@ -346,119 +237,124 @@ smooth_laser(depo,hydro)
    return(depo);
 }
 $==============================================================================
-$--Smooth radiation and heat flux transport
-smooth_radia(depo,hydro)
+$--smooth radiation and heat flux over groups of nodes with same initial radius
+smooth_radia(depo,hydro,lines)
 {
    depo     = copy(depo);
-   lines    = DEBUG_LINES;
    for(i=1;i<=#lines;i=i+1){
       line  = lines#i;
       depo[line] = M20_AzimuthalFilter(depo[line],hydro.nmass[line],
-                   dt=0.0001,power=4,cycles=1);
+                   dt=0.0002,power=4,cycles=1);
    }
    return(depo);
 }
 $==============================================================================
-$--Capsule design based on Temporal et al., Eur. Phys. J. D (2019) 73:5
-$--Initial densities modified to have zero pressure at initial time
-local Capsule()
-{
-   $n           = 40:50:10:30;
-   n           = 50:100:50:80;
-   r           = double(0.012:0.0700:0.0900:0.1300);
-   z           = 1:1:1.0:1.01;
-   i           = 1:2:3:4;
-   ma          = ma_simple_quadrant(n,r,z,i);
-   zi          = sum(ma.qid==1|ma.qid==2);
-                 ma_divide(ma,1...zi,1:1:1:1);
-                 ma_divide(ma,(zi+1)...#ma.qid,1:1:0:0);
-   topo        = NewTopo(ma.t,ma.ct,ma.x,ma.y);
-   hydro       = Hydro(topo,gmode=2,xsymmetry=1,ntemp=1);
-$--Compute center of cells and region flags 'ic', 'iwall', 'iv'
-   rnode    = hypot(ma.x,ma.y);
-   xn       = ma.y;
-   yn       = ma.y;
-   xc       = center_of_cells(ma.t,ma.x);
-   yc       = center_of_cells(ma.t,ma.y);
-   rc       = hypot(xc,yc);
-
-   cone_a  = 50;
-   iwall    = ((yc       )> xc*tan(cone_a/45*atan(1)))&
-              ((yc-0.0068)<=xc*tan(cone_a/45*atan(1)))&
-              (fabs(xc)>=0.0120) &
-              (fabs(rc)<=0.0900);
-   iDT     = rc>0.0720 & rc<=0.0850 & 
-             yc<=rc*sin(cone_a/45*atan(1));	      
-   iCH     = rc>0.0850 & rc<=0.0900 & 
-             yc<=rc*sin(cone_a/45*atan(1));	      
-   iablator = rc>0.0900 & 
-             yc<=rc*sin(cone_a/45*atan(1));	      
-   iout     = !iwall & !iDT & !iCH & !iablator;
-
-   tempT    = 273/11605;
-   rhoDT    = 0.25*iDT+0.008*iout;
-   tiDT     = tempT;
-   rhoCH    = 1.1*iCH+0.001*iablator;
-   tiCH     = tempT*iCH+100*iablator;
-   rhoAu    = (19.2)*(iwall);
-   tiAu     = tempT;
-
-   matDT    = MaterialDT();
-   matCH    = MaterialCH();
-   matAu    = MaterialAu();
-
-   HydroAdd(hydro,matDT,rhoDT,tiDT,tiDT);
-   HydroAdd(hydro,matCH,rhoCH,tiCH,tiCH);
-   HydroAdd(hydro,matAu,rhoAu,tiAu,tiAu);
-
-   HydroEOS(hydro);
-   return(hydro);
-}
-$==============================================================================
-$ set laser pulse shape
 local Laser(hydro,dt)
 {
    time        = hydro.time;
 
-   $R5-V1
-   $times       =     0:  0.85:  1.50:   2.1:  2.5:   2.7: 2.9: 4.753: 4.754;
-   $powers      = 0.305: 0.398: 0.585: 1.246: 3.24: 6.919:15.4:  15.4: 0; 
-
-   $R6-V1
-   $times  = 0: 0.20: 0.6: 0.8: 1.19: 1.60: 1.90: 2.24: 2.67: 3.12:  3.39: 4.37: 4.67;
-   $powers = 0: 1.23: 0.0: 0.0: 1.53: 1.39: 3.47: 5.90: 5.98: 8.63: 11.27: 15.4: 0; 
-
-   $R7-V3
-   $times  = 0: 0.13:0.26:0.76: 0.89: 1.02: 1.25: 1.38: 1.51: 1.73:  1.86: 4.81: 4.94;
-   $powers = 0: 1.81: 0.0: 0.0: 3.31: 0.00: 0.00: 6.08: 0.00: 0.00:  12.4: 12.4: 0; 
-
-   $120kJDT
-   times  = 0: 0.88:1.88:2.68: 3.35: 4.67: 5.42: 5.98: 6.64: 7.08: 7.36 :10.36: 10.49;
-   powers = 0: 0.72: 0.0:0.72: 0.34: 0.15: 1.45: 1.87: 3.59: 9.03: 14.29:14.29: 0; 
-
    times       = hydro.gaopt.ltimes;
-   powers      = hydro.gaopt.lpowers;
-   power       = algorithm_interpola_lin1d(times,powers,time*1e9,0)*1e19;
-   radius      = 0.80*0.0900*sin(50/45*atan(1));
-   n           = 200;
-   zero        = (1 ... n)*0;
-   angle       = 50*atan(1)/45;
-   r           = radius*((((0 ... (n-1))+random(n))/n)*2-1);
-   a           = random(n)*atan(1)*8;
-   x0          = (10*cos(angle)+r*cos(a)*sin(angle))+0.8*0.0900;
-   y0          = (10*sin(angle)-r*cos(a)*cos(angle));
-   z0          = (r*sin(a));
-   x1          = (zero-1*cos(angle));
-   y1          = (zero-1*sin(angle));
-   z1          = (zero);
-   w           = (fabs(r)/exp((fabs(r)/radius)^4));
+   powers      = hydro.gaopt.lpowers;   
 
+   power       = algorithm_interpola_lin1d(times,powers,time*1e9,0)*1e19;
+   power       = power*0.5;
+
+   n           = 160;
+   zero        = (1 .. n)*0;
+   one         = zero+1;
+   theta       = ((1 .. n)-1+0.5)/(n)*atan(1)*2;
+   x0          = 2*cos(theta);
+   y0          = 2*sin(theta);
+   z0          = 1e-6;
+   x1          = -1*cos(theta);
+   y1          = -1*sin(theta);
+   z1          = -0.5e-6;
+$--Supergaussian profile
+   w          = y0;
+$--Rescale beamlet power
    w           = power*w/sum(w);
    return([x0,x1,y0,y1,z0,z1,w]);
+
 }
 $==============================================================================
-$==============================================================================
+$--regriding package (currently under development)
+local procesa(h,rext,flag)
+{
+   h           = copy(h);
+   h.p         = copy(h.p);
+$--Number pi     
+   pi          = 4*atan(double(1));
+$--Small quantity
+   eps         = 1e-6;
+$--Obtain region to be modified
+   x0          = h.topo.x0;
+   y0          = h.topo.y0;
+   r0          = hypot(x0,y0);
+   nodes       = pos(r0>0&r0<rext*(1-eps));
+   a0          = atan2(y0[nodes],x0[nodes])/(pi/2);
+   a0[pos(fabs(a0-1)<eps)] = 1;
+$--Obtain exterior profile
+   extnodes    = pos(r0<rext*(1+eps)&r0>rext*(1-eps));
+   extnodes    = extnodes[sort(atan2(y0[extnodes],x0[extnodes]))];
+$--Circularize exterior profile
+   if(flag){
+      xcir     = h.p[extnodes+extnodes-1];
+      ycir     = h.p[extnodes+extnodes];
+      rcir     = hypot(xcir,ycir);
+      acir     = atan2(ycir,xcir);
+      acir     = (0 ... (#acir-1))/(#acir-1)*max(acir);
+      rcir     = sum(rcir)/#rcir;
+      xcir     = rcir*cos(acir);
+      ycir     = rcir*sin(acir);
+      xcir[#xcir]=0;
+      h.p[extnodes+extnodes-1]=xcir;
+      h.p[extnodes+extnodes]=ycir;
+   }
+$--Compute external n radius and azimuth
+   x0b         = x0[extnodes];
+   y0b         = y0[extnodes];
+   a0b         = atan2(y0b,x0b)/(pi/2);
+   a0b[pos(fabs(a0b-1)<eps)] = 1;
+   x1b         = h.p[extnodes+extnodes-1];
+   y1b         = h.p[extnodes+extnodes];
+   r1b         = hypot(x1b,y1b);
+   a1b         = atan2(y1b,x1b)/(pi/2);
+   a1b[pos(fabs(a1b-1)<eps)] = 1;
+$--Report excesive distortion
+   da          = cut_first(a1b)-cut_last(a1b);
+   dist        = min(da)/(sum(da)/#da);
+   if(dist<0.5){
+      p("dist<0.5");
+   }
+   db          = (max(r1b)-min(r1b))/max(r1b);
+   if(db>0.25){
+      p("db<0.25");
+   }
 $--Compute radial distribution of cells
+   map         = map(h,rext); 
+$--Interpolate radius and azimuth 
+   r0          = r0[nodes];
+   factor      = algorithm_interpola_lin1d(map.r0,map.f,r0,r0);
+   r1          = algorithm_interpola_lin1d(a0b,r1b,a0,a0)*factor;
+   a1          = algorithm_interpola_lin1d(a0b,a1b,a0,a0)*(pi/2);
+   s1          = sin(a1); 
+   c1          = cos(a1);
+   c1[pos(fabs(c1)<eps)] = 0;
+   x1          = r1*c1;
+   y1          = r1*s1;
+$--Return new grid
+   h.p[nodes+nodes-1] = x1;
+   h.p[nodes+nodes]   = y1;
+   HydroVol(h);
+   if(min(h.area)<0){
+      HydroOutput(h);
+      p("min(h.area)<0");
+      exit(0);
+   }
+   return(h);
+}
+$==============================================================================
+$--compute radial distribution of cells (currently under development)
 local map(h,rext)
 {
    eps         = 1e-6;
@@ -486,6 +382,7 @@ local map(h,rext)
       vlat[i+1]= vlat[i+1]+sum(f2*vol);
    }
    rholat      = mlat/vlat;
+   rholat      = sqrt(rholat);
    ilat        = 0:acc((cut_first(rholat)+cut_last(rholat))*
                        (cut_first(r1lat)-cut_last(r1lat)));
    flat        = (r1lat-min(r1lat))/(max(r1lat)-min(r1lat));
@@ -501,37 +398,158 @@ local map(h,rext)
    return(map);
 }
 $==============================================================================
-$--auxiliar routine
-local ph(time,h)
+local ga_initialize_fitness()
 {
-   save=h.time;
-   h.time=time;
-   HydroOutput(h);
-   h.time=save;
+   o          = struct();
+   struct(o,<rhorf>,   0);
+   struct(o,<rhorc>,   0);
+   struct(o,<rho>,     0);
+   struct(o,<T>,       0);
+   struct(o,<P>,       0);
+   struct(o,<V>,       0);
+   struct(o,<ltimes>,  *);
+   struct(o,<lpowers>, *);
+   struct(o,<mimp>,    0);
+   struct(o,<ekimp>,   0);
+   struct(o,<elaser>,  0);
+   struct(o,<amp>,     0);
+   return(o);
 }
 $==============================================================================
-local center_of_cells(tn,x)
+$ Read input laser pulse  
+local readPulse(file)
 {
-   nt          = #tn/3;
-   i1          = tn[3*(2*(1 ... nt/2)-1)-2];
-   i2          = tn[3*(2*(1 ... nt/2)-1)-1];
-   i3          = tn[3*(2*(1 ... nt/2)-1)  ];
-   i4          = tn[3*(2*(1 ... nt/2)-1)+1];
-   xc          = (1 ... nt)*double(0);
-   xc[2*(1 ... nt/2)-1] = (x[i1]+x[i2]+x[i3]+x[i4])/4.0;
-   xc[2*(1 ... nt/2)  ] = (x[i1]+x[i2]+x[i3]+x[i4])/4.0;
-   return(xc);
+   list     = separa(carga(file),"&");
+   $all      = double(decode(list#1));
+   all      = decode(list#1);
+   n        = (#all-3)/2;
+   dt       = all[  1 ...   n];    
+   times    = acc(dt);
+   powers   = all[n+1 ... 2*n];
+
+   elaser   = 0.5*sum((powers[1 ...n-1]+powers[2 ...n])*dt[2 ...n]);   
+
+   res      = [[<times>,<powers>,<elaser>],times,powers,elaser];
+   return(res);
 }
 $==============================================================================
-$--External pressure on the boundary wall
-local pext_f(time,xm,ym,hydro)
-{  
-   bw          = hydro.topo.bw;
-   wt          = hydro.topo.wt;
-   index2      = 2*bw;
-   index1      = index2-1;
-   t1          = wt[index1];
-   t2          = wt[index2];
-   pres        = 0.5*hydro.P[t1+t2];
-   return(pres);
+local ga_calculate_fitness(hydro)
+{
+   hydro      = copy(hydro);
+
+   topo       = hydro.topo;
+
+   np         = hydro.topo.np;
+   iy         = (1 ... np)*2;
+   ix         = iy-1;
+   vx         = hydro.v[ix];
+   vy         = hydro.v[iy];
+   vr         = sqrt(vx*vx+vy*vy)*(vx<0);
+
+   xn         = hydro.p[ix];
+   yn         = hydro.p[iy];
+   rn         = hypot(xn,yn);
+   rc         = node_to_cell(topo.tn,(topo.ct)*0,rn); 
+
+   rhorfmax   = hydro.gaopt.rhorf;
+   rhorcmax   = hydro.gaopt.rhorc;
+   rhomax     = hydro.gaopt.rho;
+   mimp       = hydro.gaopt.mimp;
+   ekimp      = hydro.gaopt.ekimp;
+   ptmax      = hydro.gaopt.P;
+   timax      = hydro.gaopt.T;
+   vrmax      = hydro.gaopt.V;
+
+   frac2      = hydro.mass#1/hydro.tmass;
+   frac2n     = cell_to_node(topo.tn,topo.ct,topo.np,frac2);
+   rhon       = cell_to_node(topo.tn,topo.ct,topo.np,hydro.rho*(frac2>0));
+   rhomax     = max(hydro.rho*(frac2>0):rhomax);
+   ptmax      = max(hydro.Pe  *(frac2>0):ptmax);
+   timax      = max(hydro.TeN*(rn>0.0050):timax);
+   vrmax      = max(vr*(rhon>1e-1):vrmax);
+   nmass1     = hydro.nmass*frac2n*(vx<0);
+   mimp       = max(sum(nmass1):mimp);
+   ekimp      = max(sum(0.5*nmass1*vr^2):ekimp);
+
+   ind_yaxis  = pos(xn ==0);
+   rn_yaxis   = yn[ind_yaxis];
+   rhon_yaxis = rhon[ind_yaxis];
+   ind_yaxis  = sort(rn_yaxis);
+   rn_yaxis   = rn_yaxis[ind_yaxis];
+   rhon_yaxis = rhon_yaxis[ind_yaxis];
+   dr_yaxis   = cut_first(rn_yaxis)-cut_last(rn_yaxis);
+   rhoc_yaxis = 0.5*(cut_first(rhon_yaxis)+cut_last(rhon_yaxis));
+   rhorfmax   = max(sum(rhoc_yaxis*dr_yaxis),rhorfmax);
+   
+   ind_xaxis  = pos(yn == 0);
+   rn_xaxis   = xn[ind_xaxis];
+   rhon_xaxis = rhon[ind_xaxis];
+   ind_xaxis  = sort(rn_xaxis);
+   rn_xaxis   = rn_xaxis[ind_xaxis];
+   rhon_xaxis = rhon_xaxis[ind_xaxis];
+   dr_xaxis   = cut_first(rn_xaxis)-cut_last(rn_xaxis);
+   rhoc_xaxis = 0.5*(cut_first(rhon_xaxis)+cut_last(rhon_xaxis));
+   rhorcmax   = max(sum(rhoc_xaxis*dr_xaxis),rhorcmax);
+
+   $rhorDT     = sum(((hydro.mass)#1)*(rc<16e-4)/rc^2)/(4*3.14159254);
+   $rhorDT     = sum(hydro.tmass*(rc<16e-4)/rc^2)/(4*3.14159254);
+   $rhorcmax   = max(rhorDT,rhorcmax);
+
+   hydro.gaopt.rhorf = rhorfmax;
+   hydro.gaopt.rhorc = rhorcmax;
+   hydro.gaopt.rho   = rhomax;
+   hydro.gaopt.P     = ptmax;
+   hydro.gaopt.T     = timax;
+   hydro.gaopt.V     = vrmax;
+   hydro.gaopt.mimp  = mimp;
+   hydro.gaopt.ekimp = ekimp;
+   return(hydro);
 }
+
+$==============================================================================
+
+local ga_output_fitness(fileout,hydro)
+{ 
+  rhorf      = hydro.gaopt.rhorf;         $ g/cm^2
+  rhorc      = hydro.gaopt.rhorc;         $ g/cm^2
+  rho        = hydro.gaopt.rho;           $ g/cc
+  vr         = hydro.gaopt.V*1e-5;        $ km/s
+  ti         = hydro.gaopt.T*1e-3;        $ keV
+  ptmax      = hydro.gaopt.P*1e-15;       $ erg/cc-->Gbar
+  mimp       = hydro.gaopt.mimp*1e6;      $ ug
+  ekimp      = hydro.gaopt.ekimp*1e-10;   $ kJ
+  elaser     = hydro.gaopt.elaser;        $ kJ
+  amp        = hydro.gaopt.amp;           $ cm
+
+  $dataout    = elaser:amp;
+  dataout    = rhorf:rhorc:rho: ti:vr:ptmax: mimp:ekimp:elaser;
+  ga_writeVector(fileout,double(dataout));
+}
+$==============================================================================
+$ data -A vector to be written with a type of  double
+local ga_writeVector(file,data);
+
+/*C*/
+#include <stdio.h>
+#include <string.h>
+static D *_ga_writeVector2(D* _file, D* _data)
+{
+   char   s[80]; 
+   double *data;
+   FILE   *mfid1;
+
+   data = _data->p.d;
+
+   sprintf(s,"%s",_file->p.c);
+   mfid1  = fopen(s,"w");
+
+   fprintf(mfid1,"%8.5f %8.5f %8.2f  %8.4f %8.4f %8.4f  %8.4f %8.4f %8.2f\n", 
+           data[0],data[1],data[2],data[3],data[4],data[5],data[6],data[7],data[8]);
+
+   fclose(mfid1);
+
+   DLibera(_file); DLibera(_data);
+   return(DCreaNulo());
+}
+/*C*/
+$==============================================================================

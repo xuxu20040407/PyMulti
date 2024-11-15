@@ -29,4 +29,4 @@ if __name__ == '__main__':
     inp_data = pm.data2D_process_inp(program_name, n_splits**3)
     fit_data = pm.data2D_process_fit(program_name, n_splits ** 3)
     np.save('2D_database.npy',  np.concatenate((inp_data, fit_data), axis=1))
-    pm.run_delete_2D(new_dir)
+    # pm.run_delete_2D(new_dir)
