@@ -126,7 +126,7 @@ $-----perform numerical integration
 $-----print interesting values 
       rhor(h2);
 $-----output at specified times
-      HydroOutputAtTimes(h1,h2,times);
+      $HydroOutputAtTimes(h1,h2,times);
 
 $-----after 5 ns, consider a grid change
       if(M20_Project_Test(h2,hR,control.project)&h2.time>5e-9){

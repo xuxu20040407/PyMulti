@@ -7,7 +7,7 @@ import os
 import shutil
 
 
-def init2D(case_dir, task_num):
+def init2D(case_dir, task_num,version='fort'):
     # 初始化项目
     pwd = os.getcwd()
     if case_dir is None:
@@ -30,6 +30,10 @@ def init2D(case_dir, task_num):
             os.makedirs(task_dir)
         task_dirs.append(task_dir)
     # 迁移源文件至每个任务子文件夹
+    if version == 'fort':
+        source_dir = os.path.join(pwd, 'source/2D')
+    elif version == 'fit':
+        source_dir = os.path.join(pwd, 'source/2D_fit')
     source_dir = os.path.join(pwd, 'source/2D')
     files_to_copy = ['User.r','DEPENDENCES','FILELIST']
     for file_name in files_to_copy:
@@ -41,8 +45,7 @@ def init2D(case_dir, task_num):
     return new_dir
 
 
-def generate_input_data2D(case_dir, index, laser, thick1, thick2, thick3):
-    # 由于Multi2d程序需要现场编译，所有需要在新的index文件夹下产生输入文件
+def generate_input_data2D(case_dir, index, laser=None, thick1=0.045, thick2=0.010, thick3=0.000):
     if laser is None:
         laser = [0.000000,
                  0.390000,
@@ -70,12 +73,7 @@ def generate_input_data2D(case_dir, index, laser, thick1, thick2, thick3):
                  32.00000,
                  32.00000,
                  0.000000]
-    if thick1 is None:
-        thick1 = 0.15
-    if thick2 is None:
-        thick2 = 0.003
-    if thick3 is None:
-        thick3 = 0.02
+
 
     if not os.path.exists(case_dir):
         os.makedirs(case_dir)
@@ -103,14 +101,14 @@ def run_command_2D(new_dir, index):
         result = subprocess.run(command, shell=True, check=True, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
 
-        # 打印命令的输出
-        print(f"命令 '{command}' 的输出:")
-        print(result.stdout)
-
-        # 如果有错误输出，也打印出来
-        if result.stderr:
-            print(f"命令 '{command}' 的错误输出:")
-            print(result.stderr)
+        # # 打印命令的输出
+        # print(f"命令 '{command}' 的输出:")
+        # print(result.stdout)
+        #
+        # # 如果有错误输出，也打印出来
+        # if result.stderr:
+        #     print(f"命令 '{command}' 的错误输出:")
+        #     print(result.stderr)
 
     except subprocess.CalledProcessError as e:
         # 如果命令返回非零退出状态，打印错误信息
@@ -151,23 +149,4 @@ def data2D_process_fit(program_name, task_num):
         data = np.loadtxt(file_path)
         all_data[i, :] = data
     return all_data
-
-
-
-def run_delete_2D(new_dir):
-    command = f"find {new_dir} -type f \( -name 'fit_*.dat' -o -name 'block_*' -o -name 'inp_*.dat' \) -print0 | xargs -0 rm -f"
-    try:
-        result = subprocess.run(command, shell=True, check=True, text=True, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-
-        print(f"命令 '{command}' 的输出:")
-        print(result.stdout)
-
-        if result.stderr:
-            print(f"命令 '{command}' 的错误输出:")
-            print(result.stderr)
-
-    except subprocess.CalledProcessError as e:
-        print(f"命令 '{command}' 执行失败，返回码：{e.returncode}")
-        print(e.stderr)
 
